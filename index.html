@@ -1,0 +1,186 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Browser EDA & ML — Weather CSV (client-side)</title>
+
+  <!-- Basic responsive CSS -->
+  <style>
+    :root{
+      --gap:12px;
+      --card-bg:#fff;
+      --muted:#666;
+      --accent:#0b84ff;
+      --max-w:1100px;
+    }
+    *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,system-ui,Arial,sans-serif}
+    body{margin:0;background:#f4f7fb;color:#111;display:flex;justify-content:center;padding:24px}
+    .wrap{width:100%;max-width:var(--max-w)}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+
+    .grid{display:grid;grid-template-columns:1fr;gap:var(--gap)}
+    @media(min-width:900px){ .grid{grid-template-columns:360px 1fr} }
+
+    .col{display:flex;flex-direction:column;gap:var(--gap)}
+    .card{background:var(--card-bg);padding:14px;border-radius:10px;box-shadow:0 1px 4px rgba(20,30,50,0.06)}
+    label{font-weight:600;font-size:13px;display:block;margin-bottom:8px}
+    input[type=file]{display:block}
+    .btn{display:inline-block;padding:8px 12px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer;font-weight:600;margin-right:8px}
+    .btn.secondary{background:#6c757d}
+    .btn:disabled{background:#ccc;cursor:not-allowed}
+    .muted{color:var(--muted);font-size:13px}
+    .small{font-size:13px}
+
+    .section{margin-bottom:var(--gap)}
+    .preview{overflow:auto;max-height:200px;border-radius:6px;border:1px solid #eee;padding:8px;background:#fafafa}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th,td{padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:left}
+    th{background:#fafafa;position:sticky;top:0}
+    .charts{display:grid;grid-template-columns:1fr;gap:12px}
+    @media(min-width:900px){ .charts{grid-template-columns:repeat(2,1fr)} }
+
+    .note{font-size:12px;color:var(--muted);margin-top:8px}
+    .export-links a{display:inline-block;margin-right:8px;color:var(--accent);text-decoration:none}
+    .chart-title{font-weight:600;font-size:14px;margin-bottom:6px;text-align:center}
+    .ml-section{margin-top:20px;border-top:1px solid #eee;padding-top:20px}
+  </style>
+
+  <!-- CDN libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@1.1.0/dist/chartjs-chart-matrix.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Browser EDA & ML — Weather Prediction</h1>
+        <p class="lead">Client-only EDA and GRU model for <strong>weather.csv</strong> (precipitation, temp_max, temp_min, wind, weather).</p>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- Left column: controls -->
+      <div class="col">
+        <div class="card">
+          <label for="fileInput">Data Load — choose <code>weather.csv</code></label>
+          <input id="fileInput" type="file" accept=".csv,text/csv" />
+          <div style="margin-top:10px">
+            <button id="loadBtn" class="btn">Load</button>
+            <button id="runBtn" class="btn secondary">Run EDA</button>
+          </div>
+          <p class="note">Parser uses <code>quotes:true</code> and <code>dynamicTyping:true</code>. To reuse with another dataset, swap the schema in <code>app.js</code>.</p>
+        </div>
+
+        <div class="card ml-section">
+          <h3 style="margin:0 0 8px 0">ML Model Training</h3>
+          <div style="margin-top:10px">
+            <button id="trainBtn" class="btn">Train Model</button>
+            <button id="evaluateBtn" class="btn secondary" disabled>Evaluate Model</button>
+          </div>
+          <p class="note">Trains a GRU model using 12-day sequences to predict weather. Requires clean data with no missing values.</p>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px 0">Merge & Overview</h3>
+          <div id="overview" class="small muted">No data loaded.</div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px 0">Export</h3>
+          <div class="export-links">
+            <a id="downloadCSV" href="#" download="eda_summary.csv">Download CSV</a>
+            <a id="downloadJSON" href="#" download="eda_summary.json">Download JSON</a>
+          </div>
+          <p class="note">Create public GitHub repo, commit <code>index.html</code>, <code>app.js</code>, and <code>gru.js</code>, enable Pages (main/root), test URL.</p>
+        </div>
+      </div>
+
+      <!-- Right column: outputs -->
+      <div class="col">
+        <div class="card section">
+          <h3 style="margin:0 0 8px 0">Data Preview</h3>
+          <div id="preview" class="preview small muted">No preview available.</div>
+        </div>
+
+        <div class="card section">
+          <h3 style="margin:0 0 8px 0">Missing Values</h3>
+          <canvas id="missingChart" height="120"></canvas>
+        </div>
+
+        <div class="card section">
+          <h3 style="margin:0 0 8px 0">Stats Summary</h3>
+          <div id="stats" class="small muted">No stats yet.</div>
+        </div>
+
+        <div class="card section">
+          <h3 style="margin:0 0 8px 0">Visualizations</h3>
+          <div class="charts">
+            <div>
+              <div class="chart-title" id="title_precip">precipitation</div>
+              <canvas id="hist_precip" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title" id="title_tempmax">temp_max</div>
+              <canvas id="hist_tempmax" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title" id="title_tempmin">temp_min</div>
+              <canvas id="hist_tempmin" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title" id="title_wind">wind</div>
+              <canvas id="hist_wind" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title">weather distribution (%)</div>
+              <canvas id="weather_doughnut" height="220"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- <div class="card section ml-section">
+          <h3 style="margin:0 0 8px 0">Model Evaluation</h3>
+          <div class="charts">
+            <div>
+              <div class="chart-title">Class Accuracy</div>
+              <canvas id="accuracyChart" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title">Prediction Timeline (First 100 Samples)</div>
+              <canvas id="timelineChart" height="220"></canvas>
+            </div>
+          </div>
+        </div> -->
+
+        <div class="card section ml-section">
+          <h3 style="margin:0 0 8px 0">Model Evaluation</h3>
+          <div class="charts">
+            <div>
+              <div class="chart-title">Class Accuracy</div>
+              <canvas id="accuracyChart" height="220"></canvas>
+            </div>
+            <div>
+              <div class="chart-title">Prediction Timeline (First 100 Samples)</div>
+              <canvas id="timelineChart" height="220"></canvas>
+            </div>
+            <div style="grid-column: 1 / -1;">
+              <div class="chart-title">ROC Curves - Multiclass Classification</div>
+              <canvas id="rocChart" height="300"></canvas>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- App logic -->
+  <script src="app.js"></script>
+</body>
+</html>
